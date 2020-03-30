@@ -403,13 +403,13 @@ int main(int argc, const char *argv[])
 		}
 	}
 
-	printf("main: %s\n", name_dev_main);
-
-	if ((name_output == 0) || (use_fusion && name_dev_tier2 == 0))
+	if ((name_dev_main == 0) || (name_output == 0) || (use_fusion && name_dev_tier2 == 0))
 	{
 		usage();
 		return 1;
 	}
+
+	printf("main: %s\n", name_dev_main);
 
 	std::unique_ptr<Device> dev_main;
 	std::unique_ptr<Device> dev_tier2;

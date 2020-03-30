@@ -251,7 +251,6 @@ bool DiskImageFile::SetupEncryptionV1()
 	std::string password;
 	uint8_t derived_key[0x18];
 	size_t n;
-	uint64_t total_size;
 
 	static const uint8_t des_iv[8] = { 0x4A, 0xDD, 0xA2, 0x2C, 0x79, 0xE8, 0x21, 0x05 };
 	// uint8_t aes_key[0x10];
@@ -265,7 +264,7 @@ bool DiskImageFile::SetupEncryptionV1()
 	int64_t hdrsize = sizeof(DmgCryptHeaderV1);
 
 	m_image.seekg(-hdrsize, std::ios::end);
-	total_size = m_image.tellg();
+//	uint64_t total_size = m_image.tellg();
 	m_image.read(reinterpret_cast<char *>(&hdr), sizeof(hdr));
 
 	if (g_debug & Dbg_Crypto)

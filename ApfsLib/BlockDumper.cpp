@@ -1172,6 +1172,9 @@ void BlockDumper::DumpBTEntry_FusionMT(const void* key_ptr, size_t key_len, cons
 {
 	const fusion_mt_key_t *key = reinterpret_cast<const fusion_mt_key_t *>(key_ptr);
 
+	(void)key_len;
+	(void)val_len;
+
 	m_os << key->paddr << " => ";
 
 	if (index)

@@ -127,10 +127,7 @@ bool Dumper::DumpContainer(std::ostream &os)
 	uint64_t paddr;
 
 	uint64_t block_count;
-	uint32_t block_size;
 	uint32_t blocks_per_chunk;
-	uint32_t chunks_per_cib;
-	uint32_t cibs_per_cab;
 	uint32_t cib_count;
 	uint32_t cab_count;
 	const le<uint64_t> *cxb_oid;
@@ -197,10 +194,10 @@ bool Dumper::DumpContainer(std::ostream &os)
 
 	os << "Now dumping blocks according to bitmap ..." << std::endl;
 
-	block_size = sm->sm_block_size;
+//	uint32_t block_size = sm->sm_block_size;
+//	uint32_t chunks_per_cib = sm->sm_chunks_per_cib;
+//	uint32_t cibs_per_cab = sm->sm_cibs_per_cab;
 	blocks_per_chunk = sm->sm_blocks_per_chunk;
-	chunks_per_cib = sm->sm_chunks_per_cib;
-	cibs_per_cab = sm->sm_cibs_per_cab;
 
 	for (devidx = SD_MAIN; devidx < SD_COUNT; devidx++)
 	{

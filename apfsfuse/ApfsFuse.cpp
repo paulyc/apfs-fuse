@@ -666,6 +666,8 @@ bool add_option(std::string &optstr, const char *name, const char *value)
 
 static int apfs_parse_fuse_opt(void *data, const char *arg, int key, struct fuse_args* outargs)
 {
+	(void)data;
+	(void)outargs;
 	if (key == FUSE_OPT_KEY_OPT) {
 		if (!strncmp(arg, "uid=", 4)) {
 			g_uid = strtol(strchr(arg, '=') + sizeof(char), nullptr, 10);

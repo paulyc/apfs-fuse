@@ -457,6 +457,8 @@ bool DeviceDMG::ProcessHeaderXML(uint64_t off, uint64_t size)
 
 bool DeviceDMG::ProcessHeaderRsrc(uint64_t off, uint64_t size)
 {
+	(void)off;
+	(void)size;
 	return false;
 }
 
