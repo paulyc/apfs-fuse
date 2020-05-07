@@ -1,5 +1,6 @@
 #include <cstdio>
 #include <cstring>
+#include <cinttypes>
 
 #include "Device.h"
 #include "GptPartitionMap.h"
@@ -43,7 +44,6 @@ static_assert(sizeof(PMAP_Entry) == 128, "PMAP Entry wrong size");
 
 static const PM_GUID partitiontype_apfs = { 0xEF, 0x57, 0x34, 0x7C, 0x00, 0x00, 0xAA, 0x11, 0xAA, 0x11, 0x00, 0x30, 0x65, 0x43, 0xEC, 0xAC };
 
-/*
 static void PrintGUID(const PM_GUID &guid)
 {
 	printf("%02X%02X%02X%02X-", guid[3], guid[2], guid[1], guid[0]);
@@ -52,37 +52,50 @@ static void PrintGUID(const PM_GUID &guid)
 	printf("%02X%02X-", guid[9], guid[8]);
 	printf("%02X%02X%02X%02X%02X%02X", guid[10], guid[11], guid[12], guid[13], guid[14], guid[15]);
 }
-*/
 
 GptPartitionMap::GptPartitionMap() : m_crc(true)
 {
+	m_hdr = nullptr;
+	m_map = nullptr;
+	m_sector_size = 0x200;
 }
 
 bool GptPartitionMap::LoadAndVerify(Device & dev)
 {
-	std::vector<uint8_t> hdr_data;
-
 	PMAP_GptHeader *hdr;
 
-	hdr_data.resize(0x1000);
+	m_hdr = nullptr;
+	m_map = nullptr;
+	m_entry_data.clear();
+	m_hdr_data.clear();
 
-	dev.Read(hdr_data.data(), 0, 0x1000);
+	m_sector_size = dev.GetSectorSize();
 
-	hdr = reinterpret_cast<PMAP_GptHeader *>(hdr_data.data() + 0x200);
+	m_hdr_data.resize(m_sector_size);
 
-	if (hdr->Signature != 0x5452415020494645)
-		return false;
+	dev.Read(m_hdr_data.data(), m_sector_size, m_sector_size);
+
+	hdr = reinterpret_cast<PMAP_GptHeader *>(m_hdr_data.data());
+
+	if (hdr->Signature != 0x5452415020494645) {
+		m_hdr_data.resize(0x1000);
+		dev.Read(m_hdr_data.data(), 0x1000, 0x1000);
+
+		hdr = reinterpret_cast<PMAP_GptHeader *>(m_hdr_data.data());
+
+		if (hdr->Signature != 0x5452415020494645)
+			return false;
+
+		m_sector_size = 0x1000;
+	}
 
 	if (hdr->Revision != 0x00010000)
 		return false;
 
-	if (hdr->HeaderSize > 0x200)
+	if (hdr->HeaderSize > m_sector_size)
 		return false;
 
 	if (hdr->SizeOfPartitionEntry != 0x80)
-		return false;
-
-	if (hdr->PartitionEntryLBA != 2)
 		return false;
 
 	uint32_t hdr_crc;
@@ -92,51 +105,52 @@ bool GptPartitionMap::LoadAndVerify(Device & dev)
 	hdr->HeaderCRC32 = 0;
 
 	m_crc.SetCRC(0xFFFFFFFF);
-	m_crc.Calc(hdr_data.data() + 0x200, hdr->HeaderSize);
+	m_crc.Calc(m_hdr_data.data(), hdr->HeaderSize);
 	calc_crc = m_crc.GetCRC() ^ 0xFFFFFFFF;
 
-	if (calc_crc != hdr_crc)
+	if (calc_crc != hdr_crc) {
+		m_hdr_data.clear();
 		return false;
+	}
 
 	size_t mapsize;
 
-	mapsize = (0x200 * hdr->PartitionEntryLBA) + (hdr->NumberOfPartitionEntries * hdr->SizeOfPartitionEntry);
-	mapsize = (mapsize + 0xFFF) & ~0xFFF;
+	mapsize = hdr->NumberOfPartitionEntries * hdr->SizeOfPartitionEntry;
+	mapsize = (mapsize + m_sector_size - 1) & ~(m_sector_size - 1);
 
-	hdr_data.clear();
-	hdr_data.resize(mapsize);
-	dev.Read(hdr_data.data(), 0, hdr_data.size());
-
-	hdr = reinterpret_cast<PMAP_GptHeader *>(hdr_data.data() + 0x200);
+	m_entry_data.resize(mapsize);
+	dev.Read(m_entry_data.data(), m_sector_size * hdr->PartitionEntryLBA, m_entry_data.size());
 
 	m_crc.SetCRC(0xFFFFFFFF);
-	m_crc.Calc(hdr_data.data() + (0x200 * hdr->PartitionEntryLBA), hdr->SizeOfPartitionEntry * hdr->NumberOfPartitionEntries);
+	m_crc.Calc(m_entry_data.data(), hdr->SizeOfPartitionEntry * hdr->NumberOfPartitionEntries);
 	calc_crc = m_crc.GetCRC() ^ 0xFFFFFFFF;
 
-	if (calc_crc != hdr->PartitionEntryArrayCRC32)
+	if (calc_crc != hdr->PartitionEntryArrayCRC32) {
+		m_entry_data.clear();
+		m_hdr_data.clear();
 		return false;
+	}
 
-	m_gpt_data = hdr_data;
+	m_hdr = reinterpret_cast<const PMAP_GptHeader *>(m_hdr_data.data());
+	m_map = reinterpret_cast<const PMAP_Entry *>(m_entry_data.data());
 
 	return true;
 }
 
 int GptPartitionMap::FindFirstAPFSPartition()
 {
-	if (m_gpt_data.size() == 0)
+	if (!m_hdr || !m_map)
 		return -1;
 
-	const PMAP_GptHeader *hdr = reinterpret_cast<const PMAP_GptHeader *>(m_gpt_data.data() + 0x200);
-	const PMAP_Entry *entry = reinterpret_cast<const PMAP_Entry *>(m_gpt_data.data() + (0x200 * hdr->PartitionEntryLBA));
 	unsigned int k;
 	int rc = -1;
 
-	for (k = 0; k < hdr->NumberOfPartitionEntries; k++)
+	for (k = 0; k < m_hdr->NumberOfPartitionEntries; k++)
 	{
-		if (entry[k].StartingLBA == 0 && entry[k].EndingLBA == 0)
+		if (m_map[k].StartingLBA == 0 && m_map[k].EndingLBA == 0)
 			break;
 
-		if (!memcmp(entry[k].PartitionTypeGUID, partitiontype_apfs, sizeof(PM_GUID)))
+		if (!memcmp(m_map[k].PartitionTypeGUID, partitiontype_apfs, sizeof(PM_GUID)))
 		{
 			rc = k;
 			break;
@@ -148,32 +162,26 @@ int GptPartitionMap::FindFirstAPFSPartition()
 
 bool GptPartitionMap::GetPartitionOffsetAndSize(int partnum, uint64_t & offset, uint64_t & size)
 {
-	if (m_gpt_data.size() == 0)
+	if (!m_hdr || !m_map)
 		return false;
 
-	const PMAP_GptHeader *hdr = reinterpret_cast<const PMAP_GptHeader *>(m_gpt_data.data() + 0x200);
-	const PMAP_Entry *entry = reinterpret_cast<const PMAP_Entry *>(m_gpt_data.data() + (0x200 * hdr->PartitionEntryLBA));
-
-	offset = entry[partnum].StartingLBA * 0x200;
-	size = (entry[partnum].EndingLBA - entry[partnum].StartingLBA + 1) * 0x200;
+	offset = m_map[partnum].StartingLBA * m_sector_size;
+	size = (m_map[partnum].EndingLBA - m_map[partnum].StartingLBA + 1) * m_sector_size;
 
 	return true;
 }
 
-/*
 void GptPartitionMap::ListEntries()
 {
-	if (m_gpt_data.size() == 0)
+	if (!m_hdr || !m_map)
 		return;
 
-	const PMAP_GptHeader *hdr = reinterpret_cast<const PMAP_GptHeader *>(m_gpt_data.data() + 0x200);
-	const PMAP_Entry *entry = reinterpret_cast<const PMAP_Entry *>(m_gpt_data.data() + (0x200 * hdr->PartitionEntryLBA));
 	size_t k;
 	size_t n;
 
-	for (k = 0; k < hdr->NumberOfPartitionEntries; k++)
+	for (k = 0; k < m_hdr->NumberOfPartitionEntries; k++)
 	{
-		const PMAP_Entry &e = entry[k];
+		const PMAP_Entry &e = m_map[k];
 
 		if (e.StartingLBA == 0 && e.EndingLBA == 0)
 			break;
@@ -181,8 +189,8 @@ void GptPartitionMap::ListEntries()
 		PrintGUID(e.PartitionTypeGUID);
 		printf(" ");
 		PrintGUID(e.UniquePartitionGUID);
-		printf(" %016llX %016llX ", e.StartingLBA.get(), e.EndingLBA.get());
-		printf("%016llX ", e.Attributes.get());
+		printf(" %016" PRIX64 " %016" PRIX64 " ", e.StartingLBA.get(), e.EndingLBA.get());
+		printf("%016" PRIX64 " ", e.Attributes.get());
 
 		for (n = 0; (n < 36) && (e.PartitionName[n] != 0); n++)
 			printf("%c", e.PartitionName[n].get());
@@ -190,4 +198,3 @@ void GptPartitionMap::ListEntries()
 		printf("\n");
 	}
 }
-*/

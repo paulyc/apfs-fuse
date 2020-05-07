@@ -124,7 +124,7 @@ ApfsDir::Inode::Inode(const ApfsDir::Inode& o)
 	ds_total_bytes_written = o.ds_total_bytes_written;
 	ds_total_bytes_read = o.ds_total_bytes_read;
 	// j_dir_stats_val_t dir_stats;
-	memcpy(fs_uuid, o.fs_uuid, sizeof(uuid_t));
+	memcpy(fs_uuid, o.fs_uuid, sizeof(apfs_uuid_t));
 	sparse_bytes = o.sparse_bytes;
 	document_id = o.document_id;;
 	rdev = o.rdev;
@@ -276,8 +276,8 @@ bool ApfsDir::GetInode(ApfsDir::Inode& res, uint64_t inode)
 				// TODO
 				break;
 			case INO_EXT_TYPE_FS_UUID:
-				assert(xf[n].x_size == sizeof(uuid_t));
-				memcpy(res.fs_uuid, xdata, sizeof(uuid_t));
+				assert(xf[n].x_size == sizeof(apfs_uuid_t));
+				memcpy(res.fs_uuid, xdata, sizeof(apfs_uuid_t));
 				res.optional_present_flags |= Inode::INO_HAS_FS_UUID;
 				break;
 			case INO_EXT_TYPE_SPARSE_BYTES:
@@ -540,14 +540,14 @@ bool ApfsDir::ReadFile(void* data, uint64_t inode, uint64_t offs, size_t size)
 			{
 				if (g_debug & Dbg_Dir)
 					std::cout << "Full read blk " << ext_val->phys_block_num + blk_idx << " cnt " << (cur_size >> m_blksize_sh) << std::endl;
-				m_vol.ReadBlocks(bdata, ext_val->phys_block_num + blk_idx, cur_size >> m_blksize_sh, true, ext_val->crypto_id + blk_idx);
+				m_vol.ReadBlocks(bdata, ext_val->phys_block_num + blk_idx, cur_size >> m_blksize_sh, ext_val->crypto_id + blk_idx);
 			}
 			else
 			{
 				if (g_debug & Dbg_Dir)
 					std::cout << "Partial read blk " << ext_val->phys_block_num + blk_idx << " cnt 1" << std::endl;
 
-				m_vol.ReadBlocks(m_tmp_blk.data(), ext_val->phys_block_num + blk_idx, 1, true, ext_val->crypto_id + blk_idx);
+				m_vol.ReadBlocks(m_tmp_blk.data(), ext_val->phys_block_num + blk_idx, 1, ext_val->crypto_id + blk_idx);
 
 				if (blk_offs + cur_size > m_blksize)
 					cur_size = m_blksize - blk_offs;
@@ -595,7 +595,10 @@ bool ApfsDir::ListAttributes(std::vector<std::string>& names, uint64_t inode)
 			break;
 
 		if ((ekey->hdr.obj_id_and_type >> OBJ_TYPE_SHIFT) < APFS_TYPE_XATTR)
+		{
+			it.next();
 			continue;
+		}
 
 		if ((ekey->hdr.obj_id_and_type >> OBJ_TYPE_SHIFT) > APFS_TYPE_XATTR)
 			break;
